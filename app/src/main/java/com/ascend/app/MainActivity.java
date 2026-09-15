@@ -1,58 +1,26 @@
 package com.ascend.app;
 
 import android.Manifest;
-import android.app.Activity;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
+import android.app.*;
+import android.content.*;
 import android.content.pm.PackageManager;
-import android.os.Build;
-import android.os.Bundle;
-import android.speech.tts.TextToSpeech;
-import android.view.Gravity;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
-import java.util.Locale;
+import android.os.*;
+import android.graphics.Color;
+import android.view.*;
+import android.widget.*;
+import java.util.*;
+import org.json.*;
 
 public class MainActivity extends Activity {
-    @Override public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        createChannel();
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 701);
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(28, 28, 28, 28);
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setBackgroundColor(0xFF0A0A0C);
-
-        TextView brand = new TextView(this);
-        brand.setText("ASCEND"); brand.setTextSize(28); brand.setTextColor(0xFFFFFFFF);
-        root.addView(brand);
-        TextView sub = new TextView(this);
-        sub.setText("DISCIPLINE • SCHEDULE • EXECUTION"); sub.setTextColor(0xFF9999A3);
-        root.addView(sub);
-
-        Button add = new Button(this); add.setText("+ ADD SCHEDULE");
-        add.setOnClickListener(v -> ScheduleEngine.speakNow(this, "ASCEND schedule editor is ready."));
-        root.addView(add);
-        Button voice = new Button(this); voice.setText("TEST VOICE");
-        voice.setOnClickListener(v -> ScheduleEngine.speakNow(this, "Yo! This is an ASCEND voice test. Lock in."));
-        root.addView(voice);
-
-        TextView status = new TextView(this);
-        status.setText("v0.4.0 • Schedule + voice prototype"); status.setTextColor(0xFFB8B8C0);
-        root.addView(status);
-        setContentView(new ScrollView(this) {{ addView(root); }});
-    }
-
-    private void createChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel c = new NotificationChannel("ascend_schedule", "ASCEND Schedule", NotificationManager.IMPORTANCE_HIGH);
-            c.setDescription("Scheduled ASCEND alerts");
-            ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(c);
-        }
-    }
-}
+    private static final String PREFS="ascend", KEY="schedules";
+    private final ArrayList<ScheduleItem> items=new ArrayList<>();
+    private LinearLayout list;
+    @Override public void onCreate(Bundle b){super.onCreate(b);createChannel();requestNotificationPermission();load();build();ScheduleEngine.rescheduleAll(this,items);}
+    private void build(){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(18),dp(20),dp(18),dp(24));root.setBackgroundColor(Color.rgb(10,10,12));TextView brand=label("ASCEND",28,true);root.addView(brand);TextView sub=label("DISCIPLINE • SCHEDULE • EXECUTION",11,false);sub.setTextColor(0xFF9999A3);root.addView(sub);Button add=button("+ ADD SCHEDULE");add.setOnClickListener(v->editor(-1));root.addView(add);Button voice=button("TEST VOICE");voice.setOnClickListener(v->ScheduleEngine.speakNow(this,"Yo! This is an ASCEND voice test. Lock in."));root.addView(voice);TextView h=label("TODAY'S SCHEDULE",14,true);root.addView(h,lp(-1,-2,0,dp(14)));list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);root.addView(list);refresh();setContentView(new ScrollView(this){{setFillViewport(true);addView(root);}});}
+    private void refresh(){if(list==null)return;list.removeAllViews();items.sort(Comparator.comparingInt(s->s.start));for(ScheduleItem s:items){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(10),dp(8),dp(10));row.setBackgroundColor(0xFF18181C);TextView t=label(s.icon+"  "+s.title+"\n"+fmt(s.start)+" – "+fmt(s.end)+"  •  "+s.repeat,15,false);row.addView(t,new LinearLayout.LayoutParams(0,-2,1));Button e=button("EDIT");e.setOnClickListener(v->editor(items.indexOf(s)));row.addView(e,lp(dp(64),dp(42),0,0));Button d=button("×");d.setOnClickListener(v->{ScheduleEngine.cancel(this,s.id);items.remove(s);save();refresh();});row.addView(d,lp(dp(42),dp(42),4,0));list.addView(row,lp(-1,-2,0,dp(8)));}}
+    private void editor(int index){final int[] st={18*60},en={19*60};EditText title=new EditText(this);title.setHint("Task name");EditText icon=new EditText(this);icon.setHint("Icon (emoji)");Spinner repeat=new Spinner(this);String[] rs={"Every day","Weekdays","Weekend","Once"};repeat.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,rs));Button sb=button("START  "+fmt(st[0])),eb=button("END  "+fmt(en[0]));if(index>=0){ScheduleItem s=items.get(index);title.setText(s.title);icon.setText(s.icon);st[0]=s.start;en[0]=s.end;for(int i=0;i<rs.length;i++)if(rs[i].equals(s.repeat))repeat.setSelection(i);sb.setText("START  "+fmt(st[0]));eb.setText("END  "+fmt(en[0]));}sb.setOnClickListener(v->TimePickerDialogCompat.show(this,st[0]/60,st[0]%60,(h,m)->{st[0]=h*60+m;sb.setText("START  "+fmt(st[0]));}));eb.setOnClickListener(v->TimePickerDialogCompat.show(this,en[0]/60,en[0]%60,(h,m)->{en[0]=h*60+m;eb.setText("END  "+fmt(en[0]));}));LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(18),dp(12),dp(18),dp(8));box.addView(label(index<0?"ADD SCHEDULE":"EDIT SCHEDULE",18,true));box.addView(title,lp(-1,dp(52),0,dp(6)));box.addView(icon,lp(-1,dp(52),0,dp(6)));LinearLayout times=new LinearLayout(this);times.addView(sb,new LinearLayout.LayoutParams(0,dp(50),1));times.addView(eb,new LinearLayout.LayoutParams(0,dp(50),1));box.addView(times,lp(-1,dp(50),0,dp(6)));box.addView(repeat,lp(-1,dp(50),0,dp(8)));AlertDialog dlg=new AlertDialog.Builder(this).setView(box).setNegativeButton("CANCEL",null).setPositiveButton("SAVE",null).create();dlg.setOnShowListener(x->dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String t=title.getText().toString().trim();if(t.isEmpty()){title.setError("Enter a task name");return;}if(en[0]<=st[0]){Toast.makeText(this,"End time must be after start time",Toast.LENGTH_SHORT).show();return;}ScheduleItem s=index<0?new ScheduleItem():items.get(index);s.title=t;s.icon=icon.getText().toString().trim().isEmpty()?"•":icon.getText().toString().trim();s.start=st[0];s.end=en[0];s.repeat=repeat.getSelectedItem().toString();if(index<0)items.add(s);save();ScheduleEngine.rescheduleAll(this,items);refresh();dlg.dismiss();}));dlg.show();}
+    private void createChannel(){if(Build.VERSION.SDK_INT>=26){NotificationChannel c=new NotificationChannel("ascend_schedule","ASCEND Schedule",NotificationManager.IMPORTANCE_HIGH);((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(c);}}
+    private void requestNotificationPermission(){if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},701);}
+    private void load(){try{JSONArray a=new JSONArray(getSharedPreferences(PREFS,0).getString(KEY,"[]"));for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);ScheduleItem s=new ScheduleItem();s.id=o.optInt("id",s.id);s.title=o.optString("title");s.icon=o.optString("icon","•");s.start=o.optInt("start",1080);s.end=o.optInt("end",1140);s.repeat=o.optString("repeat","Every day");items.add(s);}}catch(Exception ignored){}}
+    private void save(){try{JSONArray a=new JSONArray();for(ScheduleItem s:items){JSONObject o=new JSONObject();o.put("id",s.id);o.put("title",s.title);o.put("icon",s.icon);o.put("start",s.start);o.put("end",s.end);o.put("repeat",s.repeat);a.put(o);}getSharedPreferences(PREFS,0).edit().putString(KEY,a.toString()).apply();}catch(Exception ignored){}}
+    static String fmt(int m){int h=m/60,mi=m%60;String ap=h>=12?"PM":"AM";int hh=h%12;if(hh==0)hh=12;return String.format(Locale.getDefault(),"%d:%02d %s",hh,mi,ap);} TextView label(String s,int z,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextColor(Color.WHITE);t.setTextSize(z);if(bold)t.setTypeface(null,1);return t;} Button button(String s){Button b=new Button(this);b.setText(s);return b;} LinearLayout.LayoutParams lp(int w,int h,int l,int b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(w,h);p.setMargins(dp(l),0,0,dp(b));return p;} int dp(int n){return(int)(n*getResources().getDisplayMetrics().density+.5f);} public static class ScheduleItem{int id=(int)(System.currentTimeMillis()&0x7fffffff);String title="";String icon="•";int start=1080,end=1140;String repeat="Every day";}}
